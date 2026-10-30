@@ -1,0 +1,19 @@
+version: "dfm-2026.10-1"
+processes:
+  injection:
+    title: Injection moulding (two-plate)
+    pull: [0, 0, 1]
+    min_wall_mm: 1.0
+    max_wall_mm: 6.0
+    min_draft_deg: 1.0
+    max_no_draft_area_ratio: 0.08
+    max_undercut_ratio: 0.12
+    thickness_samples: 400
+    watertight_severity: error
+  print3d:
+    title: FDM / SLA 3D printing (prototype)
+    min_wall_mm: 0.8
+    max_overhang_ratio: 0.35
+    overhang_angle_deg: 45
+    thickness_samples: 300
+    watertight_severity: error

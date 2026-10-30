@@ -1,0 +1,25 @@
+# DesignAround case constraints. Save with:
+#   designaround --json case set <case> --constraints constraints.yaml
+# Parameter and feature names come from: designaround --json cad params <case> v1
+
+locked_params:
+  - length        # keep the carton size
+  - width
+  - wall          # keep the mould wall thickness
+
+target_features:  # change at least one of these groups
+  - handle
+  - lid
+
+interfaces:
+  - param: height             # stacking height must not change
+  - part: body
+    tolerance_mm: 1.0         # body footprint may move at most 1 mm
+
+keep:
+  - "logo panel on the front"
+avoid:
+  - "visible screws"
+processes:
+  - injection
+notes: ""

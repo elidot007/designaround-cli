@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="zh">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>DesignAround</title>
+  <link rel="icon" type="image/png" href="/static/favicon.png">
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+  <div class="app" id="app">
+    <aside class="sidebar">
+      <div class="side-top">
+        <a class="brand" href="/"><img src="/static/mark.svg" alt="" width="22" height="22">DesignAround</a>
+      </div>
+      <button id="new-chat" class="new-chat"><i data-icon="PencilEdit02"></i>新对话<span class="kbd">⌘N</span></button>
+
+      <div class="section-title"><i data-icon="Folder01"></i>案卷</div>
+      <ul id="cases" class="list cases"></ul>
+
+      <div class="section-title"><i data-icon="Message01"></i>对话</div>
+      <ul id="sessions" class="list"></ul>
+
+      <div class="side-foot">
+        <div class="meter" id="meter">
+          <div class="meter-row"><span>本次对话</span><span class="num" id="meter-text">0 / 3,000 积分</span></div>
+          <div class="bar"><span id="meter-bar"></span></div>
+        </div>
+        <div class="foot-links">
+          <a href="#" id="manage-billing"><i data-icon="CreditCard"></i>管理订阅</a>
+          <a href="mailto:support@elidot.com"><i data-icon="Mail01"></i>support@elidot.com</a>
+        </div>
+        <div class="runtime" id="runtime"></div>
+      </div>
+    </aside>
+
+    <main class="chat">
+      <header class="chat-header">
+        <div class="title-wrap">
+          <div id="chat-title" class="chat-title">新对话</div>
+          <div id="chat-sub" class="chat-sub"></div>
+        </div>
+        <div class="header-right">
+          <span id="busy" class="busy hidden"><span class="pulse"></span>正在运行</span>
+          <button id="abort" class="btn quiet hidden"><i data-icon="StopCircle"></i>停止</button>
+          <button id="settings-btn" class="icon-btn" title="设置" aria-label="设置"><i data-icon="Settings02"></i></button>
+        </div>
+      </header>
+
+      <section id="messages" class="messages">
+        <div class="welcome" id="welcome">
+          <div class="plate"><img src="/static/art/welcome.jpg" alt=""></div>
+          <div class="welcome-body">
+            <h1>上架之前，先看清外观专利。</h1>
+            <p class="lead">告诉我你的产品，或者上传照片、STEP 文件、收到的专利号。我会建 3D 样品、检索美国、中国、欧洲已公开的外观设计、逐一比较，并给出能落地的改型和申请材料。</p>
+            <div class="examples questions">
+              <button class="example"><span class="ex-k">① 能不能卖</span><span class="ex-t">我有一款产品想卖美国亚马逊，帮我查外观专利风险</span><i data-icon="ArrowRight01"></i></button>
+              <button class="example"><span class="ex-k">② 怎么改</span><span class="ex-t">我的产品撞上了在先外观专利，帮我改到能卖</span><i data-icon="ArrowRight01"></i></button>
+              <button class="example"><span class="ex-k">③ 怎么保护</span><span class="ex-t">设计定稿了，帮我准备美国和中国的外观专利申请材料</span><i data-icon="ArrowRight01"></i></button>
+              <button class="example"><span class="ex-k">④ 怎么做出来</span><span class="ex-t">帮我出给工厂的打样包：STEP、STL 和中文改动说明</span><i data-icon="ArrowRight01"></i></button>
+              <button class="example"><span class="ex-k">⑤ 出事了</span><span class="ex-t">我收到了外观专利投诉，帮我做对比和应诉材料</span><i data-icon="ArrowRight01"></i></button>
+              <button class="example"><span class="ex-k">新设计</span><span class="ex-t">我想做一款新产品，帮我按需求出几个设计方向</span><i data-icon="ArrowRight01"></i></button>
+            </div>
+            <div class="have">
+              <span class="have-q">你手上有什么？</span>
+              <button class="chip" data-have="我手上有实物样品，可以按要求拍照。">实物样品</button>
+              <button class="chip" data-have="我有 STEP / STL 等 CAD 文件。">CAD 文件</button>
+              <button class="chip" data-have="我只有竞品图片或链接。">只有图片</button>
+              <button class="chip" data-have="我只有一个想法，还没有产品。">只有想法</button>
+              <button class="chip ghost" id="try-sample">先看示例案卷（免费）</button>
+            </div>
+            <p class="note"><i data-icon="InformationCircle"></i>风险评估不是法律意见，提交前须由执业专利代理师确认。花积分的步骤都会先问你。</p>
+          </div>
+        </div>
+      </section>
+
+      <footer class="composer">
+        <div class="composer-box">
+          <div id="attachments" class="attachments"></div>
+          <textarea id="input" rows="1" placeholder="描述你的产品或问题"></textarea>
+          <div class="composer-row">
+            <label class="icon-btn attach" title="上传照片或 CAD 文件" aria-label="上传照片或 CAD 文件">
+              <input id="file" type="file" multiple accept=".png,.jpg,.jpeg,.webp,.step,.stp,.iges,.igs,.brep,.stl,.obj,.glb,.3mf,.csv,.pdf,.txt,.eml"><i data-icon="Attachment01"></i>
+            </label>
+            <span class="hint">照片、STEP、STL、CSV 产品清单 · Enter 发送，Shift+Enter 换行</span>
+            <button id="send" class="send" aria-label="发送"><i data-icon="ArrowUp02"></i></button>
+          </div>
+        </div>
+      </footer>
+    </main>
+
+    <aside class="panel hidden" id="panel">
+      <header class="panel-header">
+        <div><div id="panel-title" class="panel-title">案卷</div><div id="panel-sub" class="panel-sub"></div></div>
+        <button id="panel-close" class="icon-btn" aria-label="关闭"><i data-icon="Cancel01"></i></button>
+      </header>
+      <div id="panel-body" class="panel-body"></div>
+    </aside>
+  </div>
+
+  <dialog id="confirm" class="sheet">
+    <form method="dialog">
+      <div class="sheet-kicker">需要你确认</div>
+      <h3 id="confirm-title"></h3>
+      <p id="confirm-detail" class="sheet-detail"></p>
+      <div class="cost"><span class="cost-n" id="confirm-credits"></span><span class="cost-u" id="confirm-usd"></span></div>
+      <menu>
+        <button value="no" class="btn">不用了</button>
+        <button value="yes" class="btn primary">允许并继续</button>
+      </menu>
+    </form>
+  </dialog>
+
+  <dialog id="settings" class="sheet">
+    <form method="dialog">
+      <h3>设置</h3>
+      <label>每次对话的模型积分上限<input id="set-budget" type="number" min="100" step="100"></label>
+      <label>低于多少积分的步骤自动允许（0 表示每次都问）<input id="set-auto" type="number" min="0" step="10"></label>
+      <label>长任务完成后通知到群机器人（飞书、企业微信、钉钉、Slack 的 Webhook 地址，可留空）<input id="set-webhook" type="url" placeholder="https://open.feishu.cn/open-apis/bot/v2/hook/…"></label>
+      <label class="check"><input id="set-desktop" type="checkbox"> 长任务完成时弹出系统通知</label>
+      <label>语言 · Language<select id="set-lang"><option value="zh">中文</option><option value="en">English</option></select></label>
+      <p class="note" id="set-info"></p>
+      <menu><button value="cancel" class="btn">取消</button><button value="save" class="btn primary">保存</button></menu>
+    </form>
+  </dialog>
+
+  <dialog id="billing" class="sheet">
+    <form method="dialog">
+      <h3>套餐与积分</h3>
+      <p class="sheet-detail" id="billing-now">正在读取账户…</p>
+      <div class="plans-mini">
+        <div class="plan-mini">
+          <div class="pm-h"><b>Pro</b><span class="num">US$59 / 月</span></div>
+          <p>每月 10,000 积分，专利图无水印，可生成美国、中国、欧盟申请材料包。</p>
+          <div class="pm-btns"><button type="button" class="btn primary" data-checkout="pro">月付升级</button><button type="button" class="btn" data-checkout="pro-annual">年付 US$590</button></div>
+        </div>
+        <div class="plan-mini">
+          <div class="pm-h"><b>积分包</b><span class="num">US$50 起</span></div>
+          <p>5,000 积分，用于注册库检索、概念图和托管模型，不过期。</p>
+          <div class="pm-btns"><button type="button" class="btn" data-checkout="credits-5k">购买 5,000 积分</button></div>
+        </div>
+      </div>
+      <p class="note hidden" id="billing-note"></p>
+      <menu><button type="button" class="btn quiet hidden" id="billing-portal">管理已有订阅</button><button value="close" class="btn">关闭</button></menu>
+    </form>
+  </dialog>
+
+  <dialog id="share-dlg" class="sheet">
+    <form method="dialog" id="share-form">
+      <div class="sheet-kicker">只读分享链接</div>
+      <h3 id="share-title">分享给工厂或代理师</h3>
+      <p class="sheet-detail">文件会上传到 DesignAround 服务器。持有链接的人在有效期内可以查看和下载，每次打开都有记录；到期或撤回后文件即删除。</p>
+      <label>接收方<input id="share-to" maxlength="120" required placeholder="例如：东莞某模具厂、张律师"></label>
+      <label>内容
+        <select id="share-purpose">
+          <option value="factory">打样包：STEP / STL / 3MF + 工厂说明 PDF（给工厂）</option>
+          <option value="agent">专利视图和申请材料（给代理师）</option>
+          <option value="other">风险报告和视图</option>
+        </select>
+      </label>
+      <label>有效期
+        <select id="share-days"><option value="3">3 天</option><option value="7" selected>7 天</option><option value="14">14 天</option><option value="30">30 天</option></select>
+      </label>
+      <label>给对方的一句话（可选）<input id="share-note" maxlength="500" placeholder="例如：请按 STEP 打样，尺寸以 PDF 为准"></label>
+      <label class="check"><input id="share-wm" type="checkbox" checked> 图片和 PDF 加水印（接收方和分享编号；3D 文件无法加）</label>
+      <div class="share-result hidden" id="share-result"></div>
+      <menu><button value="cancel" class="btn" id="share-cancel" formnovalidate>取消</button><button value="create" class="btn primary" id="share-go">生成链接</button></menu>
+    </form>
+  </dialog>
+
+  <div id="toasts" class="toasts" aria-live="polite"></div>
+  <div id="lightbox" class="lightbox hidden"><img alt=""></div>
+  <script src="/static/i18n.js"></script>
+  <script src="/static/icons.js"></script>
+  <script src="/static/markdown.js"></script>
+  <script src="/static/app.js"></script>
+</body>
+</html>
