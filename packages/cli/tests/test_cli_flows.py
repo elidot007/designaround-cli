@@ -213,6 +213,8 @@ def test_server_flow(cli, home, live_server, monkeypatch):
         return {"id": "ch_test", "checkout_url": f"https://checkout.creem.io/{kw['order_id']}"}
 
     monkeypatch.setattr(app.creem, "create_checkout", fake_checkout)
+    # checkout_ready requires this SKU's product id, not only the API key.
+    monkeypatch.setenv("CREEM_PRODUCT_DA_CREDITS_5K", "prod_test_credits_5k")
     code, body = cli("billing", "checkout", "--credits", "5k")
     assert code == 0 and body["data"]["sku"] == "credits_5k" and body["data"]["checkout_url"].startswith("https://checkout.creem.io/")
     code, body = cli("billing", "order", body["data"]["order_id"])
