@@ -531,7 +531,7 @@ async function main() {
         const code = r.envelope?.kind ?? "";
         const pending = /unavailable|not_configured|billing_disabled|creem/i.test(code + " " + (r.envelope?.data?.message ?? ""));
         const en = uiLang(req) === "en";
-        return send(res, 200, { message: pending ? (en ? "Payments are still being enabled (the payment provider is reviewing us); you can upgrade here once they are. Keep using the free allowance for now." : "收款通道还在开通中（支付平台审核中），开通后这里可以直接升级。现在可以继续用免费额度。") : r.envelope?.data?.message ?? (en ? "Cannot create a checkout link right now." : "暂时无法创建付款链接。"), pending });
+        return send(res, 200, { message: pending ? (en ? "No payment link was created. Email support@elidot.com to buy this plan, or keep using the free allowance." : "没有生成付款链接。购买请发邮件到 support@elidot.com，或继续使用免费额度。") : r.envelope?.data?.message ?? (en ? "Cannot create a checkout link right now." : "暂时无法创建付款链接。"), pending });
       }
       return send(res, 404, { error: "not found" });
     } catch (err: any) {

@@ -33,7 +33,7 @@ def _trim(value, depth=0):
 def main(argv: list[str]) -> int:
     exe = shutil.which("designaround") or shutil.which("da")
     if exe is None:
-        sys.stdout.write(json.dumps({"ok": False, "kind": "cli_missing", "data": {"message": "designaround CLI not found on PATH"}, "next_actions": ["pip install designaround  (or: uv tool install designaround)"]}) + "\n")
+        sys.stdout.write(json.dumps({"ok": False, "kind": "cli_missing", "data": {"message": "designaround CLI not found on PATH"}, "next_actions": ["uv tool install designaround --python 3.12", "or: python3.12 -m pip install designaround"]}) + "\n")
         return 6
     proc = subprocess.run([exe, "--json", *argv], capture_output=True, text=True, check=False)
     out = proc.stdout.strip().splitlines()

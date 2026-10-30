@@ -8,12 +8,21 @@ DesignAround is software, not a law firm, and does not give legal advice or free
 
 ## Install
 
-The published wheels are also on the website. This repository is the source for those client packages (`packages/core`, `packages/engine`, `packages/cli`), the agent Skill (`skills/designaround`) and the agent runtime sources the CLI bundles (`agents/`).
+Python 3.11 or 3.12 is required. Install from PyPI:
+
+```bash
+uv tool install designaround --python 3.12
+# or: python3.12 -m pip install designaround
+designaround onboard
+```
+
+The same packages are also on the website package index:
 
 ```bash
 uv tool install designaround --python 3.12 --index https://designaround.elidot.com/simple/
-designaround onboard
 ```
+
+This repository is the source for those client packages (`packages/core`, `packages/engine`, `packages/cli`), the agent Skill (`skills/designaround`) and the agent runtime sources the CLI bundles (`agents/`).
 
 `designaround onboard` stores a trial key in your OS keychain. `designaround --version` prints the version on your computer.
 

@@ -2,7 +2,7 @@
 name: designaround
 description: Design-patent risk screening, design-around, patent drawings and filing packages for physical products (US, CN and EU). Use when the user sells or develops a physical product and asks whether its appearance infringes a design patent, wants a design changed to avoid a registered design, needs patent line drawings or a design-patent filing package, received an infringement complaint / TRO, or wants a factory prototype pack. Drives the `designaround` CLI.
 license: Apache-2.0
-compatibility: Needs the `designaround` CLI (pip install designaround) on PATH. Agent runs need Node.js 22.19+. Network is only used for screening, hosted scoring, platform models and billing.
+compatibility: Needs the `designaround` CLI (`uv tool install designaround --python 3.12`, or `python3.12 -m pip install designaround`) on PATH. Python 3.11 or 3.12. Agent runs need Node.js 22.19+. Network is only used for screening, hosted scoring, platform models and billing.
 metadata:
   version: "0.1.3"
   cli: "designaround >= 0.1.0"

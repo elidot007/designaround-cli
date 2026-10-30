@@ -3,7 +3,9 @@
 <!-- mcp-name: io.github.elidot007/designaround -->
 
 ```bash
-uv tool install designaround        # or: pipx install designaround
+uv tool install designaround --python 3.12
+# or: python3.12 -m pip install designaround
+# mirror: uv tool install designaround --python 3.12 --index https://designaround.elidot.com/simple/
 designaround onboard                # trial key, stored in the OS keychain
 designaround skill install claude-code   # or: cursor, codex, gemini-cli, opencode, openclaw, kiro, all
 designaround config mode host       # inside an agent host; or platform / byok
