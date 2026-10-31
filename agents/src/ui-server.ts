@@ -20,6 +20,7 @@ import { basename, dirname, extname, join, resolve, sep } from "node:path";
 import { parseArgs } from "node:util";
 import { type AssistantDeps, listChatSessions, openAssistant, runCli, transcript, WORDING_NOTE, wordingIssues } from "./assistant.ts";
 import { DESIGNAROUND_HOME, PI_AGENT_DIR } from "./env.ts";
+import { rememberEvent, takeEvents } from "./event-buffer.ts";
 import { configFromEnv, createModelRuntime } from "./runtime.ts";
 
 const UI_DIR = resolve(import.meta.dirname, "..", "ui");
@@ -54,9 +55,21 @@ type Entry = {
   id: string;
   session: any;
   subscribers: Set<ServerResponse>;
+  /** SSE frames emitted while nobody was listening, replayed on the next subscribe. */
+  buffer: string[];
   unsubscribe: () => void;
   spentCredits: number;
 };
+
+function ssePayload(frame: string): any {
+  const raw = frame.startsWith("data: ") ? frame.slice(6).trim() : "";
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
 
 function send(res: ServerResponse, status: number, body: unknown, headers: Record<string, string> = {}) {
   const data = typeof body === "string" ? body : JSON.stringify(body);
@@ -103,6 +116,10 @@ async function main() {
 
   function broadcast(entry: Entry, event: Record<string, unknown>) {
     const line = `data: ${JSON.stringify({ ...event, session: entry.id })}\n\n`;
+    if (entry.subscribers.size === 0) {
+      rememberEvent(entry.buffer, line);
+      return;
+    }
     for (const res of entry.subscribers) res.write(line);
   }
 
@@ -150,7 +167,7 @@ async function main() {
   async function attach(sessionPath?: string): Promise<Entry> {
     const ref: { current?: Entry } = {};
     const session = await openAssistant({ runtime, choice, deps: depsFor(ref), sessionPath });
-    const entry: Entry = { id: session.sessionId, session, subscribers: new Set(), unsubscribe: () => {}, spentCredits: 0 };
+    const entry: Entry = { id: session.sessionId, session, subscribers: new Set(), buffer: [], unsubscribe: () => {}, spentCredits: 0 };
     ref.current = entry;
     entry.unsubscribe = session.subscribe((ev: any) => {
       switch (ev.type) {
@@ -321,13 +338,24 @@ async function main() {
         if (action === "events" && req.method === "GET") {
           res.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache, no-transform", Connection: "keep-alive" });
           res.write(`data: ${JSON.stringify({ type: "hello", session: entry.id, busy: entry.session.isStreaming })}\n\n`);
-          for (const [id, c] of pendingConfirms) if (c.sessionId === entry.id) res.write(`data: ${JSON.stringify({ type: "confirm", id, session: entry.id, ...c.request })}\n\n`);
+          const openConfirms = [...pendingConfirms.entries()].filter(([, c]) => c.sessionId === entry.id);
+          // Add and replay in one turn: an await here would drop events fired in between.
           entry.subscribers.add(res);
           const ping = setInterval(() => res.write(": ping\n\n"), 20_000);
           req.on("close", () => {
             clearInterval(ping);
             entry.subscribers.delete(res);
           });
+          const replayedConfirm = new Set<string>();
+          for (const line of takeEvents(entry.buffer)) {
+            res.write(line);
+            const ev = ssePayload(line);
+            if (ev?.type === "confirm" && typeof ev.id === "string") replayedConfirm.add(ev.id);
+          }
+          for (const [id, c] of openConfirms) {
+            if (replayedConfirm.has(id)) continue;
+            res.write(`data: ${JSON.stringify({ type: "confirm", id, session: entry.id, ...c.request })}\n\n`);
+          }
           return;
         }
         if (action === "abort" && req.method === "POST") {

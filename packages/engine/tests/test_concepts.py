@@ -34,6 +34,9 @@ def test_concepts_lifecycle(tmp_path):
     assert bad["status"] == "needs_revision" and bad["review"]["pass"] is False
     # text in the image fails regardless of scores
     assert concepts.review_passes({"fit": 9, "manufacturable": 9, "has_text": True}) is False
+    # A blocking issue (a string, or severity major/block/error) cannot pass on scores alone.
+    assert concepts.review_passes({"fit": 9, "manufacturable": 9, "issues": ["与简单圆柱不符，脱模有风险"]}) is False
+    assert concepts.review_passes({"fit": 9, "manufacturable": 9, "issues": [{"issue": "slightly tight corner", "severity": "detail"}]}) is True
 
     c3 = concepts.concept_save(cid, _png(tmp_path / "c.png", (40, 200, 60)), title="Stepped v2", idea="steps, brush slots", prompt="p3", parent="c2", round=2)
     concepts.concept_supersede(cid, "c2", by=c3["id"])

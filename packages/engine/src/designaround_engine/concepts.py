@@ -52,6 +52,21 @@ def _write(case: Case, cid: str, meta: dict) -> None:
     (_dir(case) / cid / "meta.json").write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
+_BLOCKING = {"block", "error", "major", "blocking"}
+
+
+def _blocking_issue(issue) -> bool:
+    """A string issue is a problem to fix. An object blocks unless its severity is detail/info/warning."""
+
+    if isinstance(issue, str):
+        return bool(issue.strip())
+    if isinstance(issue, dict):
+        text = issue.get("issue") or issue.get("message") or issue.get("text") or ""
+        severity = str(issue.get("severity") or "major").lower()
+        return bool(str(text).strip()) and severity in _BLOCKING
+    return False
+
+
 def review_passes(review: dict) -> bool:
     """Deterministic pass rule over the reviewer's scores (the reviewer does not decide alone)."""
 
@@ -59,6 +74,10 @@ def review_passes(review: dict) -> bool:
         fit = float(review.get("fit", 0))
         made = float(review.get("manufacturable", 0))
     except (TypeError, ValueError):
+        return False
+    if review.get("resembles_prior_art"):
+        return False
+    if any(_blocking_issue(item) for item in review.get("issues") or []):
         return False
     return fit >= PASS_RULE["fit"] and made >= PASS_RULE["manufacturable"] and not review.get("has_text") and review.get("single_product", True) is not False
 

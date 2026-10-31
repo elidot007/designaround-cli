@@ -245,6 +245,7 @@ def run(task: str, case_id: str, *, max_credits: int, mode: str, extra: dict | N
         outcome = {"type": "error", "code": "runner_crashed", "message": (stderr or "agent runner exited without a result")[-2000:]}
         code = code or EXIT_ERROR
     outcome.setdefault("run_id", run_id)
+    apply_server_spend(outcome)
     finish_run(task, run_info, outcome, events, lang)
     if time.time() - started >= 60:
         # Long runs: tell the person (chat-bot webhook / desktop notification) when done.
@@ -256,6 +257,29 @@ def run(task: str, case_id: str, *, max_credits: int, mode: str, extra: dict | N
         except Exception:  # noqa: BLE001 - best effort
             pass
     return code, outcome, events
+
+
+def apply_server_spend(outcome: dict) -> int | None:
+    """Overwrite the agent's local ``spent`` with the server ledger when we have one.
+
+    The envelope, the run result and the notification must show this number.
+    Zero is a real charge (a free quick screen) and must not fall through to the local estimate.
+    """
+
+    run_id = outcome.get("run_id")
+    if not run_id or config.model_mode() != "platform":
+        return None
+    try:
+        from .client import Server
+
+        data = Server().get(f"/v1/runs/{run_id}/spend", timeout=10).get("data")
+    except Exception:  # noqa: BLE001 - a missing ledger must not fail the run
+        return None
+    if not isinstance(data, dict) or not isinstance(data.get("spent"), (int, float)):
+        return None
+    spent = int(data["spent"])
+    outcome["spent"] = spent
+    return spent
 
 
 def runs_dir() -> Path:

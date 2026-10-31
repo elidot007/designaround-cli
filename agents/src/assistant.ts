@@ -19,6 +19,8 @@ import { DESIGNAROUND_HOME } from "./env.ts";
 import { pngContent } from "./engine.ts";
 import { CHAT_SESSION_DIR, createIsolatedSession, type ModelChoice } from "./runtime.ts";
 
+export const PRO_PLAN_NOTE = "Filing packages and baseline freeze need the Pro plan and the upgrade command is `designaround billing checkout --plan pro`.";
+
 export const ASSISTANT_SYSTEM = `You are the DesignAround Assistant. You help sellers, designers and factories with design-patent (industrial design) risk for physical products: screening registered designs, designing around them, patent drawings, filing packages, prototypes and evidence. You work through tools that run the local DesignAround engine and the DesignAround server.
 
 How you work:
@@ -33,7 +35,7 @@ How you work:
      If the build is not accepted, it returns a draft version with the reviewer's remaining differences. Show the draft's render sheet and those differences honestly, then let the user choose: accept the draft themselves (design_accept, with their name), build again, or simplify the concept with design_revise. Never accept a draft for them.
   5. Then screen -> prior_art_rank -> observe (top 1-3) -> evaluate. If the risk is high, go back to design_revise with the observer's findings, or run design_around.
 - Existing product (photos or CAD of something the user already has): photos_add + model_from_photos, or model_import_cad, then screen and the steps above.
-- Finished design: originality + dfm -> viewpack -> filing_pack -> a registered practitioner reviews. Once the user has filed, record it with filing_record (and later official notices with filing_notice); deadlines then shows the calendar.
+- Finished design: originality + dfm -> viewpack -> filing_pack -> a registered practitioner reviews. ${PRO_PLAN_NOTE} Once the user has filed, record it with filing_record (and later official notices with filing_notice); deadlines then shows the calendar.
 - Complaint or lawsuit (a platform IP complaint, a TRO / Schedule A case): defense_intake with the notice the user uploaded -> observe the user's product version against the asserted design and the closest earlier designs (ask first, paid) -> defense_pack -> gate_create (platform_appeal or tro_response) for counsel. For lawsuits, tell the user at once that the answer is due 21 days after service and that they need US litigation counsel.
 - After each stage (concepts, 3D build, screening, evaluation, design-around, filing), call decision_card and give the user its verdict, the main reasons and the next step with its cost and time. Offer risk_report when the user wants something to share. To send files to a factory or a practitioner, use share_create (a read-only link that expires) instead of telling the user to e-mail files.
 - After any tool that creates a version or image, look at the image before you describe it.
@@ -190,14 +192,16 @@ function toolResult(res: CliResult, modelImages = 2): ToolOut {
 
 // -------------------------------------------------------------------- tools
 
+export type ConfirmQuote = { credits: number; title: string; detail: string; title_en?: string; detail_en?: string; always?: boolean };
+
 type Spec = {
   name: string;
   label: string;
   description: string;
   params: any;
   argv: (p: any) => string[];
-  /** Credits to confirm with the user before running (null = free). */
-  cost?: (p: any, deps: AssistantDeps) => { credits: number; title: string; detail: string; title_en?: string; detail_en?: string; always?: boolean } | null;
+  /** Credits to confirm with the user before running (null = free). May fetch the account first. */
+  cost?: (p: any, deps: AssistantDeps) => ConfirmQuote | null | Promise<ConfirmQuote | null>;
   images?: number;
 };
 
@@ -228,6 +232,46 @@ function tempFile(name: string, content: string): string {
 }
 
 const conceptCap = (count: number) => Math.round(120 * count + 200);
+
+/**
+ * Confirm copy for one quick registry screen.
+ * `remaining` is this month's free quick screens still left (GET /v1/credits data.free_quick_screens).
+ * null: the server did not send the field — keep the previous fixed copy.
+ */
+export function quickScreenConfirm(remaining: number | null): ConfirmQuote {
+  const title = "快速注册库检索";
+  const title_en = "Quick registry screening";
+  if (remaining != null && remaining > 0) {
+    return {
+      credits: 0,
+      always: true,
+      title,
+      title_en,
+      detail: `本次在每月免费额度内，还剩 ${remaining} 次免费快速检索，不扣积分。`,
+      detail_en: `This screen is within the free allowance, with ${remaining} free quick screens remaining this month. No credits are charged.`,
+    };
+  }
+  if (remaining === 0) {
+    return { credits: 50, title, title_en, detail: "本次快速检索需要 50 积分（$0.50）。", detail_en: "This screen costs 50 credits ($0.50)." };
+  }
+  return {
+    credits: 50,
+    title,
+    title_en,
+    detail: "固定 50 积分（$0.50）；每月前 5 次快速检索免费。",
+    detail_en: "50 credits ($0.50); the first 5 quick screens a month are free.",
+  };
+}
+
+async function freeQuickScreensRemaining(deps: AssistantDeps): Promise<number | null> {
+  try {
+    const res = await runCli(deps, ["credits"]);
+    const remaining = res.envelope?.ok ? res.envelope.data?.free_quick_screens?.remaining : undefined;
+    return typeof remaining === "number" && Number.isFinite(remaining) ? remaining : null;
+  } catch {
+    return null;
+  }
+}
 
 const SPECS: Spec[] = [
   { name: "status", label: "Status", description: "Account, plan, credits, model mode and server. Call once at the start of a conversation.", params: Type.Object({}), argv: () => ["auth", "status"] },
@@ -277,7 +321,7 @@ const SPECS: Spec[] = [
     argv: (p) => ["batch", "screen", p.csv, ...(p.deep ? ["--deep"] : []), "--max-credits", String(Math.round(p.max_credits ?? (p.deep ? 350 : 50) * Math.max(1, p.rows)))],
     cost: (p) => ({ credits: Math.round(p.max_credits ?? (p.deep ? 350 : 50) * Math.max(1, p.rows)), title: `批量${p.deep ? "深度" : "快速"}检索 ${p.rows} 个产品`, detail: `每个产品 ${p.deep ? 350 : 50} 积分${p.deep ? "" : "（每月前 5 次快速检索免费）"}；中断后再运行会接着做。`, title_en: `${p.deep ? "Deep" : "Quick"} screening of ${p.rows} products`, detail_en: `${p.deep ? 350 : 50} credits per product${p.deep ? "" : " (the first 5 quick screens a month are free)"}; an interrupted run resumes where it stopped.` }),
   },
-  { name: "decision_card", label: "Decision card", description: "Free. Where the case stands: one-line verdict (proceed / redesign / abandon / pending), reasons from the evaluations, next steps with credits and time, keep-vs-redesign-vs-abandon costs and the managed option. Use it after each stage and when the user asks what to do next.", params: Type.Object({ case_id: S(), lang: O(S({ description: "zh or en" })) }), argv: (p) => ["case", "card", p.case_id, "--lang", p.lang === "en" ? "en" : "zh"] },
+  { name: "decision_card", label: "Decision card", description: `Free to generate the card only. Where the case stands: one-line verdict (proceed / redesign / abandon / pending), reasons from the evaluations, next steps with credits and time, keep-vs-redesign-vs-abandon costs and the managed option. Use it after each stage and when the user asks what to do next. ${PRO_PLAN_NOTE} Do not describe those steps as free.`, params: Type.Object({ case_id: S(), lang: O(S({ description: "zh or en" })) }), argv: (p) => ["case", "card", p.case_id, "--lang", p.lang === "en" ? "en" : "zh"] },
   { name: "risk_report", label: "Risk report PDF", description: "Free. Risk assessment report (PDF, zh or en): conclusion, every assessed prior design, closest comparisons, method, blind spots, disclaimer.", params: Type.Object({ case_id: S(), version: O(S()), lang: O(S({ description: "zh or en" })) }), argv: (p) => ["report", p.case_id, ...(p.version ? [p.version] : []), "--lang", p.lang === "en" ? "en" : "zh"] },
   {
     name: "design_concepts",
@@ -333,7 +377,10 @@ const SPECS: Spec[] = [
     description: "Search registered designs (US via USPTO, CN via Google Patents; ClearComply) and rank them against the original. Paid: quick 50 credits (5 free per month), deep 350.",
     params: Type.Object({ case_id: S(), deep: O(Type.Boolean()), jurisdictions: O(offices) }),
     argv: (p) => ["screen", p.case_id, ...flags([["--deep", p.deep], ["-j", p.jurisdictions], ["--max-credits", p.deep ? 350 : 50]])],
-    cost: (p) => ({ credits: p.deep ? 350 : 50, title: p.deep ? "深度注册库检索" : "快速注册库检索", detail: p.deep ? "固定 350 积分（$3.50）。" : "固定 50 积分（$0.50）；每月前 5 次快速检索免费。", title_en: p.deep ? "Deep registry screening" : "Quick registry screening", detail_en: p.deep ? "350 credits ($3.50)." : "50 credits ($0.50); the first 5 quick screens a month are free." }),
+    cost: async (p, deps) => {
+      if (p.deep) return { credits: 350, title: "深度注册库检索", detail: "固定 350 积分（$3.50）。", title_en: "Deep registry screening", detail_en: "350 credits ($3.50)." };
+      return quickScreenConfirm(await freeQuickScreensRemaining(deps));
+    },
   },
   { name: "prior_art_add", label: "Add prior art", description: "Add a known registered design (number, office, figure image paths).", params: Type.Object({ case_id: S(), number: S(), office: O(S()), title: O(S()), figures: O(Type.Array(S())) }), argv: (p) => ["prior-art", "add", p.case_id, ...flags([["--number", p.number], ["--office", p.office], ["--title", p.title], ["-f", p.figures]])] },
   { name: "prior_art_rank", label: "Rank prior art", description: "Free CPU silhouette ranking of the case's prior art against a version.", params: Type.Object({ case_id: S(), version: O(S()) }), argv: (p) => ["prior-art", "rank", p.case_id, ...flags([["--version", p.version]])] },
@@ -450,7 +497,7 @@ export function assistantTools(deps: AssistantDeps): ToolDefinition<any, any, an
       description: spec.description,
       parameters: spec.params,
       async execute(toolCallId, params, signal): Promise<ToolOut> {
-        const cost = spec.cost?.(params, deps) ?? null;
+        const cost = (await spec.cost?.(params, deps)) ?? null;
         if (cost) {
           const approved = await deps.host.confirm({ tool: spec.name, ...cost });
           if (!approved) {
@@ -464,7 +511,12 @@ export function assistantTools(deps: AssistantDeps): ToolDefinition<any, any, an
           return { content: [{ type: "text", text: `Invalid arguments: ${(err as Error).message}` }], details: { ok: false, images: [] } };
         }
         const res = await runCli(deps, argv, { signal, onLine: (line) => deps.host.progress?.(toolCallId, line) });
-        return toolResult(res, spec.images ?? 2);
+        const out = toolResult(res, spec.images ?? 2);
+        if (spec.name === "decision_card") {
+          const block = out.content[0];
+          if (block && block.type === "text") block.text += `\n${PRO_PLAN_NOTE} Do not describe those steps as free.`;
+        }
+        return out;
       },
     }),
   );

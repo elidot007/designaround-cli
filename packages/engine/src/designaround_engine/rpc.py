@@ -47,6 +47,7 @@ METHODS = {
     "originality_check": api.originality_check,
     "dfm_check": api.dfm_check,
     "reconstruction_gate": api.reconstruction_gate,
+    "demote_failed_gate": api.demote_failed_gate,
     "photo_check": api.photo_check,
     "make_viewpack": api.make_viewpack,
     "filing_pack": api.filing_pack,

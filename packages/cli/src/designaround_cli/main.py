@@ -201,11 +201,13 @@ def agent_outcome(code: int, outcome: dict, *, what: str) -> dict:
             "auth": ["designaround auth status"],
             "config": ["designaround config show"],
         }
-        raise CliExit(code or EXIT_ERROR, kind, outcome.get("message") or f"{what} failed", data={k: v for k, v in outcome.items() if k not in ("type", "message")}, next_actions=hints.get(kind, []))
+        raise CliExit(code or EXIT_ERROR, kind, outcome.get("message") or f"{what} failed", data={k: v for k, v in outcome.items() if k not in ("type", "message")}, next_actions=hints.get(kind, []), cost=_run_cost(outcome))
     if code == EXIT_NEEDS_HUMAN:
-        raise CliExit(EXIT_NEEDS_HUMAN, outcome.get("status") or "needs_input", outcome.get("reason") or f"{what} needs human input.", data=outcome)
+        status = outcome.get("status") or "needs_input"
+        fallback = f"{what} did not pass the photo check." if status == "gate_failed" else f"{what} needs human input."
+        raise CliExit(EXIT_NEEDS_HUMAN, status, outcome.get("reason") or fallback, data=outcome, cost=_run_cost(outcome))
     if code:
-        raise CliExit(code, "agent_error", f"{what} exited with code {code}", data=outcome)
+        raise CliExit(code, "agent_error", f"{what} exited with code {code}", data=outcome, cost=_run_cost(outcome))
     return outcome
 
 
@@ -219,6 +221,27 @@ def server_spend(run_id: str | None) -> int | None:
     if data is None:
         return 0
     return int(data["spent"]) if isinstance(data, dict) and isinstance(data.get("spent"), (int, float)) else None
+
+
+def charged_credits(outcome: dict) -> int:
+    """The number the server ledger recorded for this run, copied onto outcome before return.
+
+    Do not use ``server or local``: a charge of 0 is real (for example a free quick screen).
+    """
+
+    spent = outcome.get("spent")
+    if isinstance(spent, (int, float)):
+        return int(spent)
+    fetched = server_spend(outcome.get("run_id"))
+    return int(fetched) if isinstance(fetched, int) else 0
+
+
+def _run_cost(outcome: dict) -> dict | None:
+    if not isinstance(outcome.get("spent"), (int, float)) and outcome.get("run_id"):
+        return {"charged": charged_credits(outcome)}
+    if isinstance(outcome.get("spent"), (int, float)):
+        return {"charged": int(outcome["spent"])}
+    return None
 
 
 HOST_LOOP = [
@@ -559,7 +582,8 @@ def case_set(
 def case_card(case_id: str = typer.Argument(...), lang: Lang = typer.Option(Lang.zh, "--lang", help="zh | en")) -> None:
     """Decision card: verdict, reasons, next steps with cost and time, keep / redesign / abandon."""
 
-    card = api.decision_card(case_id, lang=lang.value)
+    ent = entitlements()
+    card = api.decision_card(case_id, lang=lang.value, filing_packs=bool((ent.get("entitlements") or {}).get("filing_packs")))
     emit("decision_card", card, markdown=card["markdown"], next_actions=[s["command"] for s in card["next"] if s.get("command")])
 
 
@@ -572,7 +596,8 @@ def report_cmd(
 ) -> None:
     """Risk assessment report (PDF) with the conclusion, every assessed prior design, method and blind spots."""
 
-    data = api.risk_report(case_id, version, lang=lang.value, out=str(out) if out else None)
+    ent = entitlements()
+    data = api.risk_report(case_id, version, lang=lang.value, out=str(out) if out else None, filing_packs=bool((ent.get("entitlements") or {}).get("filing_packs")))
     emit("risk_report", data, markdown=f"**{data['headline']}** → `{data['path']}`")
 
 
@@ -624,7 +649,7 @@ def model_cmd(
         code, outcome, _ = runner.run("model", case_id, max_credits=budget, mode=mode, extra={"known": known, "template": template, "description": description})
         outcome = agent_outcome(code, outcome, what="CAD Agent")
         data = {**outcome, "version_info": api.version_show(case_id, outcome["version"]) if outcome.get("version") else None}
-        emit("model", data, next_actions=[f"designaround screen {case_id} --max-credits 50", f"designaround cad tweak {case_id} {outcome.get('version')} --set name=value"], cost={"estimated": budget, "charged": server_spend(outcome.get("run_id")) or outcome.get("spent", 0)})
+        emit("model", data, next_actions=[f"designaround screen {case_id} --max-credits 50", f"designaround cad tweak {case_id} {outcome.get('version')} --set name=value"], cost={"estimated": budget, "charged": charged_credits(outcome)})
         return
     else:
         if added:
@@ -939,7 +964,7 @@ def observe_cmd(
         code, outcome, _ = runner.run("observe", case_id, max_credits=budget, mode=mode, extra={"version": version, "prior": prior})
         outcome = agent_outcome(code, outcome, what="Observer")
         record = save_judgment(case_id, version, prior, outcome["observer"], f"agent:{mode}")
-        cost = {"estimated": budget, "charged": server_spend(outcome.get("run_id")) or outcome.get("spent", 0)}
+        cost = {"estimated": budget, "charged": charged_credits(outcome)}
     md = f"Observer score **{record.get('score')}/10** ({version} vs {prior}, view {record.get('view')})\n\nSimilar: " + "; ".join(record.get("similar") or []) + "\n\nDifferent: " + "; ".join(record.get("different") or [])
     emit("observer_score", record, markdown=md, next_actions=[f"designaround evaluate {case_id} {version}"], cost=cost)
 
@@ -1022,8 +1047,7 @@ def around_cmd(
         nxt.append(f"designaround design concepts {case_id} --max-credits 600  # or try a different design direction")
     if claim and claim.get("status") == "not_filed":
         nxt.insert(0, f"designaround run guarantee {outcome.get('run_id')}")
-    charged = server_spend(outcome.get("run_id"))
-    cost = {"estimated": budget, "charged": charged if charged is not None else outcome.get("spent", 0)}
+    cost = {"estimated": budget, "charged": charged_credits(outcome)}
     if claim and claim.get("refunded"):
         cost["refunded"] = int(claim["refunded"])
     emit("around", outcome, markdown=md, next_actions=nxt, cost=cost)
@@ -1062,7 +1086,7 @@ def design_concepts(
     md = md_table([{"id": r["id"], "title": r.get("title"), "pass": "yes" if r.get("pass") else "no", "fit": r.get("fit"), "issues": "; ".join(r.get("issues") or [])[:120]} for r in rows], ["id", "title", "pass", "fit", "issues"])
     passed = outcome.get("passed") or []
     nxt = [f"designaround design choose {case_id} {passed[0] if passed else '<concept>'} --person 'Name'", f"designaround design concepts {case_id} --base {passed[0] if passed else '<concept>'} --feedback '...'"]
-    emit("concepts", outcome, markdown=md + (f"\n\nSheet: {outcome.get('sheet')}" if outcome.get("sheet") else ""), next_actions=nxt, cost={"estimated": budget, "charged": server_spend(outcome.get("run_id")) or outcome.get("spent", 0)})
+    emit("concepts", outcome, markdown=md + (f"\n\nSheet: {outcome.get('sheet')}" if outcome.get("sheet") else ""), next_actions=nxt, cost={"estimated": budget, "charged": charged_credits(outcome)})
 
 
 @command(design_app, "list")
@@ -1136,7 +1160,7 @@ def design_build(
     vid = outcome.get("version")
     review = outcome.get("review") or {}
     md = f"Built **{vid}** from {outcome.get('concept')} · reviewer match {review.get('match')}/10 · {outcome.get('submissions')} submission(s)"
-    emit("design_build", outcome, markdown=md, next_actions=[f"designaround cad sheet {case_id} {vid} --kind render", f"designaround screen {case_id} --max-credits 50", f"designaround dfm {case_id} {vid}"], cost={"estimated": budget, "charged": server_spend(outcome.get("run_id")) or outcome.get("spent", 0)})
+    emit("design_build", outcome, markdown=md, next_actions=[f"designaround cad sheet {case_id} {vid} --kind render", f"designaround screen {case_id} --max-credits 50", f"designaround dfm {case_id} {vid}"], cost={"estimated": budget, "charged": charged_credits(outcome)})
 
 
 # ----------------------------------------------------------------- gates
@@ -1203,7 +1227,22 @@ def filing_pack_cmd(
     if not ent["entitlements"].get("filing_packs"):
         raise CliExit(EXIT_BUDGET, "plan_required", "Filing packages need the Pro plan or higher.", data={"plan": ent.get("plan")}, next_actions=["designaround billing checkout --plan pro  (a person completes payment)", f"designaround viewpack {case_id} {version} --office {office.value}  # free preview"])
     sim = None if similar is None else ("auto" if similar == "auto" else [s.strip() for s in similar.split(",") if s.strip()])
-    data = api.filing_pack(case_id, version, office.value, similar=sim, planned_filing_date=parse_date(planned_date, "--planned-date"), watermark=False)
+    gates: list[dict] = []
+    for event in open_case(case_id).log.read():
+        payload = event.get("payload") or {}
+        if event.get("type") == "gate.created" and payload.get("gate_id"):
+            status = payload.get("status") or "unknown"
+            try:
+                remote = Server().get(f"/v1/gates/{payload['gate_id']}")
+                remote_status = (remote.get("data") or {}).get("status")
+                if remote_status:
+                    status = remote_status
+            except Exception:  # noqa: BLE001 - a failed status check falls back to the local event
+                status = payload.get("status") or "unknown"
+            gates.append({"id": payload["gate_id"], "type": payload.get("type"), "status": status})
+        elif event.get("type") == "gate.decided":
+            gates.append({"id": payload.get("gate_id") or payload.get("id"), "type": payload.get("type"), "status": payload.get("status") or "unknown"})
+    data = api.filing_pack(case_id, version, office.value, similar=sim, planned_filing_date=parse_date(planned_date, "--planned-date"), watermark=False, gates=gates)
     checklist = data["checklist"]
     md = f"Filing package **{checklist['status']}** → {data['dir']}\n\nReady for practitioner: **{checklist['ready_for_practitioner']}**" + (" · practitioner gate required" if checklist.get("requires_practitioner_gate") else "") + "\n\n" + findings_md(checklist["findings"])
     if checklist.get("missing"):
@@ -1628,7 +1667,8 @@ def sample_cmd(lang: Lang = typer.Option(Lang.zh, "--lang")) -> None:
     """Create a free sample case (illustrative prior art and scores) to try the whole flow without credits."""
 
     data = api.sample_case(lang=lang.value)
-    card = api.decision_card(data["case"], lang=lang.value)
+    ent = entitlements()
+    card = api.decision_card(data["case"], lang=lang.value, filing_packs=bool((ent.get("entitlements") or {}).get("filing_packs")))
     emit("sample_case", {**data, "card": card}, markdown=f"Sample case **{data['case']}** created ({data['note']})\n\n{card['markdown']}", next_actions=[f"designaround case card {data['case']}", f"designaround report {data['case']} {data['candidate']}", f"designaround cad compare {data['case']} {data['original']} {data['candidate']}"])
 
 
@@ -1802,7 +1842,7 @@ def billing_plans() -> None:
         data = Server(api_key="").get("/v1/catalog", auth=False, timeout=10)["data"]
     except CliExit:
         data = catalog.public_catalog()
-    rows = [{"plan": k, "monthly_usd": v["monthly_usd"], "annual_usd": v["annual_usd"], "credits_per_month": v["monthly_credits"] if k != "free" else "starter credits once"} for k, v in data["plans"].items() if k in ("free", "pro", "team")]
+    rows = [{"plan": k, "monthly_usd": v["monthly_usd"], "annual_usd": v["annual_usd"], "credits_per_month": v["monthly_credits"] if k != "free" else f"{v.get('starter_credits', 1500)} starter credits once"} for k, v in data["plans"].items() if k in ("free", "pro", "team")]
     packs = [{"sku": k, "credits": v["credits"], "usd": v["usd"]} for k, v in data["credit_packs"].items()]
     emit("catalog", data, markdown=md_table(rows, ["plan", "monthly_usd", "annual_usd", "credits_per_month"]) + "\n\n" + md_table(packs, ["sku", "credits", "usd"]))
 

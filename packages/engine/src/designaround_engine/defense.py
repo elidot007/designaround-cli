@@ -298,7 +298,16 @@ def pack(case_id: str, version: str, *, matter_id: str | None = None, prior_ids:
     case.version_path(version)
     m = matter(case_id, matter_id)
     if not m.get("prior_art_id"):
-        raise InvalidInput("The asserted design is not on the case yet: add it as prior art with its figures and link it.", details={"next": f"designaround defense link {case_id} <prior-art-id>"})
+        right = m.get("right") or m.get("number") or "<patent number>"
+        add = f"designaround prior-art add {case_id} --number '{right}' -f <drawing.png>"
+        link = f"designaround defense link {case_id} <prior-art-id>"
+        raise InvalidInput(
+            "The asserted design is not on this case, so the pack has nothing to compare. "
+            f"`defense intake --no-fetch` records the complaint without downloading drawings. "
+            f"Add the asserted design yourself, then link it: `{add}` and `{link}`. "
+            "For a US design patent you can also run intake again without --no-fetch and DesignAround will fetch the USPTO drawings.",
+            details={"next": [add, link, "designaround defense intake <case>  # omit --no-fetch to fetch US drawings"]},
+        )
     by_id = {p["id"]: p for p in case.prior_art()}
     asserted = by_id.get(m["prior_art_id"])
     if asserted is None:

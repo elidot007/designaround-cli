@@ -721,6 +721,29 @@ def reconstruction_gate(case_id: str, vid: str, photo_paths: dict[str, str], min
     return result
 
 
+def demote_failed_gate(case_id: str, vid: str, gate: dict | None = None) -> dict:
+    """A photo-model that failed the reconstruction gate is a draft, not the original."""
+
+    case = open_case(case_id)
+    if vid not in case.version_ids():
+        raise NotFound(f"Version {vid} not found")
+    meta = case.version_meta(vid)
+    previous_kind = meta.get("kind")
+    recorded = gate or {}
+    meta["kind"] = "draft"
+    meta["reconstruction_gate"] = {
+        "pass": False,
+        "worst": recorded.get("worst"),
+        "min_score": recorded.get("min_score"),
+        "advice": recorded.get("advice"),
+    }
+    case.write_version_meta(vid, meta)
+    if case.meta.get("original") == vid:
+        case.update(original=None)
+    case.event("version.demoted", {"version": vid, "from": previous_kind, "to": "draft", "reason": "reconstruction_gate"})
+    return {"id": vid, "kind": "draft", "previous_kind": previous_kind}
+
+
 # ------------------------------------------------------------- deliverables
 
 
@@ -767,7 +790,7 @@ def similar_candidates(case_id: str, main: str) -> list[dict]:
     return filing.suggest_similar_designs(main, rows)
 
 
-def filing_pack(case_id: str, vid: str, office: str, *, similar: list[str] | str | None = None, planned_filing_date: str | None = None, watermark: bool = False) -> dict:
+def filing_pack(case_id: str, vid: str, office: str, *, similar: list[str] | str | None = None, planned_filing_date: str | None = None, watermark: bool = False, gates: list[dict] | None = None) -> dict:
     case = open_case(case_id)
     office = office.upper()
     vp_dir = case.filing_dir(office, vid) / "viewpack"
@@ -793,6 +816,7 @@ def filing_pack(case_id: str, vid: str, office: str, *, similar: list[str] | str
         has_unclaimed=has_unclaimed,
         disclosures=case.disclosures(),
         planned_filing_date=planned_filing_date,
+        gates=gates,
     )
     if similar_ids and office == "CN":
         for index, sid in enumerate(similar_ids, start=2):
@@ -1159,22 +1183,22 @@ def photos_mod_check(paths: dict[str, str]) -> dict:
 # ----------------------------------------------------------- decisions and reports
 
 
-def decision_card(case_id: str, lang: str = "zh") -> dict:
+def decision_card(case_id: str, lang: str = "zh", *, filing_packs: bool = False) -> dict:
     """FR-UX-02/03: verdict, reasons, next steps with cost and time, keep/redesign/abandon."""
 
     from . import advisor
 
-    card = advisor.decision_card(case_id, lang=lang)
+    card = advisor.decision_card(case_id, lang=lang, filing_packs=filing_packs)
     card["markdown"] = advisor.card_markdown(card)
     return card
 
 
-def risk_report(case_id: str, vid: str | None = None, lang: str = "zh", out: str | None = None) -> dict:
+def risk_report(case_id: str, vid: str | None = None, lang: str = "zh", out: str | None = None, *, filing_packs: bool = False) -> dict:
     """FR-RISK-07: risk assessment report PDF (zh or en) with blind spots and method."""
 
     from . import report
 
-    return report.risk_report(case_id, vid, lang=lang, out=out)
+    return report.risk_report(case_id, vid, lang=lang, out=out, filing_packs=filing_packs)
 
 
 def compare_sheet(case_id: str, a: str, b: str) -> dict:

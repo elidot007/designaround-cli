@@ -86,7 +86,7 @@ def _esc(text) -> str:
     return str(text if text is not None else "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
-def risk_report(case_id: str, vid: str | None = None, *, lang: str = "zh", out: str | None = None) -> dict:
+def risk_report(case_id: str, vid: str | None = None, *, lang: str = "zh", out: str | None = None, filing_packs: bool = False) -> dict:
     from reportlab.lib import colors
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.styles import ParagraphStyle
@@ -115,7 +115,7 @@ def risk_report(case_id: str, vid: str | None = None, *, lang: str = "zh", out: 
     ev_path = case.evaluation_path(vid)
     evaluation = json.loads(ev_path.read_text(encoding="utf-8")) if ev_path.exists() else None
     facts = advisor.facts(case_id)
-    card = advisor.decision_card(case_id, lang=lang)
+    card = advisor.decision_card(case_id, lang=lang, filing_packs=filing_packs)
     screen = facts.get("screen") or {}
     font = _font()
     base = ParagraphStyle("b", fontName=font, fontSize=9.5, leading=14)
@@ -180,17 +180,20 @@ def risk_report(case_id: str, vid: str | None = None, *, lang: str = "zh", out: 
             if pair:
                 block.append(Image(pair, width=172 * mm, height=172 * mm / 3 * 1.06))
             for key, label in (("similar", t["similar"]), ("different", t["different"])):
-                if obs.get(key):
-                    block.append(Paragraph(_esc(f"{label}: " + "; ".join(obs[key])[:400]), small))
-            if obs.get("rationale"):
-                block.append(Paragraph(_esc(f"{t['rationale']}: {obs['rationale']}")[:600], small))
+                notes = advisor.phrases_for_lang(obs.get(key) or [], lang)
+                if notes:
+                    block.append(Paragraph(_esc(f"{label}: " + "; ".join(notes)[:400]), small))
+            rationale = advisor.phrases_for_lang([obs["rationale"]], lang) if obs.get("rationale") else []
+            if rationale:
+                block.append(Paragraph(_esc(f"{t['rationale']}: {rationale[0]}")[:600], small))
             block.append(Spacer(1, 8))
             story.append(KeepTogether(block))
 
     if card["next"]:
         story.append(Paragraph(_esc(t["next"]), h2))
         for step in card["next"]:
-            cost = (" · " + (f"约 {step['credits']} 积分" if lang == "zh" else f"~{step['credits']} credits")) if step.get("credits") is not None else ""
+            phrase = advisor.step_cost_phrase(step, lang)
+            cost = (" · " + phrase) if phrase else ""
             story.append(Paragraph("· " + _esc(step["label"] + cost) + (f"  <font size=7>{_esc(step['command'])}</font>" if step.get("command") else ""), base))
 
     observer_models = sorted({(r.get("observer") or {}).get("model") for r in rows if (r.get("observer") or {}).get("model")})

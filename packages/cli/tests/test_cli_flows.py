@@ -188,11 +188,16 @@ def test_server_flow(cli, home, live_server, monkeypatch):
     code, body = cli("case", "set", case, "--applicant", "ACME Ltd", "--applicant-domicile", "cn", "--applicant-type", "juristic", "--inventor", "Jane Doe;Shenzhen, CN")
     assert body["data"]["applicant"] == {"name": "ACME Ltd", "domicile": "CN", "type": "juristic"}
     code, body = cli("filing-pack", case, "v1", "--office", "US")
-    assert code == 0, body
-    checklist = body["data"]["checklist"]
-    assert Path(body["data"]["dir"], "checklist.json").exists()
+    assert code != 0, body
+    assert body["kind"] == "filing_not_ready"
+    assert "REP-US-001" in body["data"]["message"]
+    details = body["data"]["details"]
+    checklist = details["checklist"]
+    assert Path(details["dir"], "checklist.json").exists()
+    assert not Path(details["dir"], "specification.docx").exists()
     assert {"REP-US-001", "REP-US-002"} <= {f["rule_id"] for f in checklist["findings"]}  # foreign juristic applicant
     assert checklist["requires_practitioner_gate"] is True
+    assert checklist["ready_for_practitioner"] is False
     assert "applicant.entity_size (large/small/micro)" in checklist["missing"]
 
     # evidence anchoring and verification against the server

@@ -19,13 +19,14 @@ STATE = {"json": False}
 
 
 class CliExit(Exception):
-    def __init__(self, code: int, kind: str, message: str, *, data: Any = None, next_actions: list[str] | None = None) -> None:
+    def __init__(self, code: int, kind: str, message: str, *, data: Any = None, next_actions: list[str] | None = None, cost: dict | None = None) -> None:
         super().__init__(message)
         self.code = code
         self.kind = kind
         self.message = message
         self.data = data
         self.next_actions = next_actions or []
+        self.cost = cost
 
 
 def envelope(kind: str, data: Any, *, next_actions: list[str] | None = None, cost: dict | None = None, ok: bool = True) -> dict:
@@ -60,7 +61,7 @@ def emit(kind: str, data: Any, *, markdown: str | None = None, next_actions: lis
 
 def fail(exc: CliExit) -> int:
     if STATE["json"]:
-        body = envelope(exc.kind, {"message": exc.message, **({"details": exc.data} if exc.data is not None else {})}, next_actions=exc.next_actions, ok=False)
+        body = envelope(exc.kind, {"message": exc.message, **({"details": exc.data} if exc.data is not None else {})}, next_actions=exc.next_actions, cost=exc.cost, ok=False)
         sys.stdout.write(json.dumps(body, ensure_ascii=False, default=str) + "\n")
         sys.stdout.flush()
     else:

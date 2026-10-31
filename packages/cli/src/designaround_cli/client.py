@@ -2,10 +2,16 @@
 
 from __future__ import annotations
 
+import time
+
 import httpx
 
 from . import __version__, config
 from .output import EXIT_AUTH, EXIT_BUDGET, EXIT_ERROR, EXIT_INVALID, CliExit
+
+# Idempotent GETs only. A POST that got a 502 may have been applied.
+_RETRY_STATUSES = {502, 503, 504}
+_RETRY_DELAYS = (0.4, 1.2)
 
 
 class Server:
@@ -25,13 +31,24 @@ class Server:
         headers = self._headers(auth)
         if content is not None:
             headers["Content-Type"] = "application/octet-stream"
-        try:
-            response = httpx.request(method, f"{self.base_url}{path}", headers=headers, json=json, params=params, timeout=timeout, content=content)
-        except httpx.HTTPError as exc:
-            raise CliExit(EXIT_ERROR, "network_error", f"Cannot reach {self.base_url}: {exc}", next_actions=["Check your connection or DESIGNAROUND_BASE_URL; retry."]) from exc
+        attempts = 1 + len(_RETRY_DELAYS) if method.upper() == "GET" else 1
+        response = None
+        for attempt in range(attempts):
+            try:
+                response = httpx.request(method, f"{self.base_url}{path}", headers=headers, json=json, params=params, timeout=timeout, content=content)
+            except httpx.HTTPError as exc:
+                raise CliExit(EXIT_ERROR, "network_error", f"Cannot reach {self.base_url}: {exc}", next_actions=["Check your connection or DESIGNAROUND_BASE_URL; retry."]) from exc
+            if response.status_code in _RETRY_STATUSES and attempt + 1 < attempts:
+                time.sleep(_RETRY_DELAYS[attempt])
+                continue
+            break
+        assert response is not None
+        cloudflare = _cloudflare_message(response.status_code, response.text)
         try:
             body = response.json()
         except ValueError:
+            if cloudflare:
+                raise CliExit(EXIT_ERROR, "cloudflare_error", cloudflare, data={"status": response.status_code}, next_actions=["Wait a moment and retry the same command.", "稍后再执行同一条命令。"]) from None
             body = {"detail": response.text[:500]}
         if response.status_code in (401, 403):
             detail = body.get("detail") if isinstance(body, dict) else body
@@ -47,6 +64,8 @@ class Server:
             detail = body.get("detail", body) if isinstance(body, dict) else body
             raise CliExit(EXIT_ERROR, (detail.get("code") if isinstance(detail, dict) else None) or "rate_limited", (detail.get("message") if isinstance(detail, dict) else None) or "Too many requests; retry later.", data=detail)
         if response.status_code >= 500:
+            if cloudflare:
+                raise CliExit(EXIT_ERROR, "cloudflare_error", cloudflare, data={"status": response.status_code}, next_actions=["Wait a moment and retry the same command.", "稍后再执行同一条命令。"]) from None
             detail = body.get("detail", body) if isinstance(body, dict) else body
             code = (detail.get("code") if isinstance(detail, dict) else None) or "server_error"
             message = (detail.get("message") if isinstance(detail, dict) else None) or f"Server error {response.status_code}"
@@ -74,3 +93,17 @@ class Server:
         response = httpx.get(url, headers={"User-Agent": f"designaround-cli/{__version__}"}, timeout=timeout, follow_redirects=True)
         response.raise_for_status()
         return response.content
+
+
+def _cloudflare_message(status: int, text: str) -> str | None:
+    """A Cloudflare HTML error page is not a JSON error from our server."""
+
+    sample = (text or "")[:4000].lower()
+    if "<html" not in sample and "<!doctype html" not in sample:
+        return None
+    if "cloudflare" not in sample and "cf-ray" not in sample and "cf-error" not in sample:
+        return None
+    return (
+        f"服务暂时不可用（Cloudflare HTTP {status}）。请稍后再试。 / "
+        f"The service is temporarily unavailable (Cloudflare HTTP {status}). Try again in a moment."
+    )

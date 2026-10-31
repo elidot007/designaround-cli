@@ -31,11 +31,15 @@ class Plan:
     viewpack_watermark: bool
     filing_packs: bool
     batch_limit: int
-    monitors: int
+    monitors: int | None
+    # One-time credits granted at signup. Paid plans grant monthly_credits instead.
+    starter_credits: int = 0
 
 
 PLANS: dict[str, Plan] = {
-    "free": Plan("free", "Free", 0, 0, 300, 1, 1, True, False, 20, 0),
+    # None on cases and monitors means no cap. Nothing in the server or CLI reads these
+    # two fields to refuse a case or a monitor; the free plan does not advertise a limit.
+    "free": Plan("free", "Free", 0, 0, 0, 1, None, True, False, 20, None, starter_credits=1_500),
     "pro": Plan("pro", "Pro", 59, 590, 10_000, 1, 50, False, True, 200, 20),
     "team": Plan("team", "Team", 189, 1890, 40_000, 5, None, False, True, 1000, 100),
     "enterprise": Plan("enterprise", "Enterprise", 1000, 12_000, 150_000, 25, None, False, True, 10_000, 1000),

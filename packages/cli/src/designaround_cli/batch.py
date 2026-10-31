@@ -31,6 +31,41 @@ MAX_ROWS = 1000
 OFFICES = {"US", "CN", "EU"}
 
 
+def top_hits(data: dict) -> list[dict]:
+    """Up to three closest designs. Shape score when the row was ranked; otherwise the screen hit, with no fake 0."""
+
+    ranked = data.get("ranked") or []
+    rows = []
+    for row in ranked[:3]:
+        number = row.get("number")
+        if not number:
+            continue
+        shape = row.get("shape")
+        score = None
+        if isinstance(shape, dict) and isinstance(shape.get("score"), (int, float)):
+            score = round(float(shape["score"]), 3)
+        elif isinstance(row.get("shape_score"), (int, float)):
+            score = round(float(row["shape_score"]), 3)
+        rows.append({"number": number, "shape": score})
+    if rows:
+        return rows
+    hits = []
+    for row in (data.get("hits") or [])[:3]:
+        if row.get("number"):
+            hits.append({"number": row["number"], "shape": None})
+    return hits
+
+
+def format_top(items: list[dict]) -> str:
+    parts = []
+    for item in items:
+        if item.get("shape") is None:
+            parts.append(str(item.get("number") or ""))
+        else:
+            parts.append(f"{item.get('number')} ({item['shape']})")
+    return "; ".join(p for p in parts if p)
+
+
 def _key(row: dict) -> str:
     raw = json.dumps({k: (row.get(k) or "").strip() for k in ("name", "article", "image", "cad", "case")}, sort_keys=True, ensure_ascii=False)
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
@@ -99,12 +134,11 @@ def run_batch(csv_path: Path, *, deep: bool, max_credits: int, concurrency: int 
             if image is not None and not image.exists():
                 raise CliExit(EXIT_INVALID, "not_found", f"Image not found: {image}")
             data = run_screen(case_id, image=image, query=None, deep=deep, jurisdictions=row["_offices"], fetch=fetch, figures_per=figures_per, version=None, hires=2 if deep else 0)
-            ranked = data.get("ranked") or []
             record.update({
                 "status": "done",
                 "candidates": data.get("candidates", 0),
                 "prior_art_added": len(data.get("added") or []),
-                "top": [{"number": r.get("number"), "shape": round((r.get("shape") or {}).get("score", r.get("shape_score", 0)) or 0, 3)} for r in ranked[:3]],
+                "top": top_hits(data),
                 "version": data.get("version"),
                 "charged": data.get("charged", 0),
                 "source_failures": len(data.get("source_failures") or []),
@@ -136,7 +170,7 @@ def run_batch(csv_path: Path, *, deep: bool, max_credits: int, concurrency: int 
     results = []
     for r in rows:
         rec = state["rows"].get(r["_key"]) or {"status": "pending"}
-        results.append({"name": r["name"], "case": rec.get("case"), "status": rec.get("status"), "candidates": rec.get("candidates"), "top": "; ".join(f"{t['number']} ({t['shape']})" for t in rec.get("top") or []), "error": rec.get("error")})
+        results.append({"name": r["name"], "case": rec.get("case"), "status": rec.get("status"), "candidates": rec.get("candidates"), "top": format_top(rec.get("top") or []), "error": rec.get("error")})
     target = out or csv_path.with_name(csv_path.stem + "-results.csv")
     with target.open("w", encoding="utf-8-sig", newline="") as fh:
         writer = csv.DictWriter(fh, fieldnames=["name", "case", "status", "candidates", "top", "error"])

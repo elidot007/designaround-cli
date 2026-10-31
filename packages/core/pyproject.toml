@@ -1,6 +1,6 @@
 [project]
 name = "designaround-core"
-version = "0.1.3"
+version = "0.1.4"
 description = "Pure-Python shared rules for DesignAround: price catalog, official fees, filing/timeline/representation rule packs, quotes."
 requires-python = ">=3.11"
 license = { text = "Apache-2.0" }

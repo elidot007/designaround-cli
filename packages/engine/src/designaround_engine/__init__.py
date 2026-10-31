@@ -6,4 +6,4 @@ CadQuery/OpenCascade, patent views come from hidden-line removal, renders and
 silhouettes come from a CPU rasteriser, and shape comparison is pure NumPy.
 """
 
-__version__ = "0.1.3"
+__version__ = "0.1.4"

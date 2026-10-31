@@ -270,6 +270,8 @@
     "读取交付物失败。": "Could not load the deliverables.",
     "读取分享链接失败（需要联网和 API Key）。": "Could not load share links (needs a connection and an API key).",
     "读取账户失败：": "Could not load the account: ",
+    "账户余额": "Account balance",
+    "账户余额 {0} 积分（约 US${1}）": "Account balance: {0} credits (about US${1})",
     "账户状态": "Account",
     "购买 5,000 积分": "Buy 5,000 credits",
     "运行 CAD 程序": "Run CAD program",

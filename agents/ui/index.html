@@ -23,6 +23,7 @@
 
       <div class="side-foot">
         <div class="meter" id="meter">
+          <div class="meter-row"><span>账户余额</span><span class="num" id="acct-balance">—</span></div>
           <div class="meter-row"><span>本次对话</span><span class="num" id="meter-text">0 / 3,000 积分</span></div>
           <div class="bar"><span id="meter-bar"></span></div>
         </div>
@@ -69,6 +70,7 @@
               <button class="chip" data-have="我只有一个想法，还没有产品。">只有想法</button>
               <button class="chip ghost" id="try-sample">先看示例案卷（免费）</button>
             </div>
+            <p class="note" id="welcome-balance"></p>
             <p class="note"><i data-icon="InformationCircle"></i>风险评估不是法律意见，提交前须由执业专利代理师确认。花积分的步骤都会先问你。</p>
           </div>
         </div>
@@ -114,13 +116,13 @@
   <dialog id="settings" class="sheet">
     <form method="dialog">
       <h3>设置</h3>
-      <label>每次对话的模型积分上限<input id="set-budget" type="number" min="100" step="100"></label>
+      <label>每次对话的模型积分上限<input id="set-budget" type="number" min="1" step="1"></label>
       <label>低于多少积分的步骤自动允许（0 表示每次都问）<input id="set-auto" type="number" min="0" step="10"></label>
       <label>长任务完成后通知到群机器人（飞书、企业微信、钉钉、Slack 的 Webhook 地址，可留空）<input id="set-webhook" type="url" placeholder="https://open.feishu.cn/open-apis/bot/v2/hook/…"></label>
       <label class="check"><input id="set-desktop" type="checkbox"> 长任务完成时弹出系统通知</label>
       <label>语言 · Language<select id="set-lang"><option value="zh">中文</option><option value="en">English</option></select></label>
       <p class="note" id="set-info"></p>
-      <menu><button value="cancel" class="btn">取消</button><button value="save" class="btn primary">保存</button></menu>
+      <menu><button value="cancel" class="btn" formnovalidate>取消</button><button value="save" class="btn primary" id="set-save" formnovalidate>保存</button></menu>
     </form>
   </dialog>
 

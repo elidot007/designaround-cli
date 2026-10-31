@@ -98,7 +98,9 @@ def describe_outcome(task: str, case_id: str, code: int, outcome: dict) -> tuple
         if qualified:
             return f"DesignAround：{what}完成", f"{case_id}：合格方案 {', '.join(qualified)}，花费 {outcome.get('spent', 0)} 积分"
         return f"DesignAround：{what}没有找到合格方案", f"{case_id}：花费 {outcome.get('spent', 0)} 积分。{tail.strip()}"
+    spent = outcome.get("spent", 0)
     if status == "ok":
         detail = outcome.get("version") or (", ".join(outcome.get("passed") or []) if task == "concepts" else "")
-        return f"DesignAround：{what}完成", f"{case_id}{('：' + detail) if detail else ''}，花费 {outcome.get('spent', 0)} 积分"
-    return f"DesignAround：{what}需要你确认", f"{case_id}：{(outcome.get('reason') or '')[:140]}"
+        return f"DesignAround：{what}完成", f"{case_id}{('：' + detail) if detail else ''}，花费 {spent} 积分"
+    detail = (outcome.get("reason") or outcome.get("status") or "")[:140]
+    return f"DesignAround：{what}需要你确认", f"{case_id}：{detail}，花费 {spent} 积分"

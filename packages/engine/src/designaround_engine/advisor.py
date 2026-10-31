@@ -9,6 +9,7 @@ conclusion; a registered practitioner confirms before filing or selling.
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 from designaround_core import catalog
@@ -16,6 +17,8 @@ from designaround_core import quote as quote_mod
 
 from . import concepts as concepts_mod
 from .workspace import Case, open_case
+
+_CJK = re.compile(r"[\u4e00-\u9fff]")
 
 DISCLAIMER = {
     "zh": "风险评估，不是法律意见；上架或提交前须由执业专利代理师确认。",
@@ -43,6 +46,18 @@ TYPICAL = {
 
 def _usd(credits: int) -> float:
     return round(credits * catalog.CREDIT_USD, 2)
+
+
+def phrases_for_lang(phrases, lang: str) -> list[str]:
+    """Keep observer notes in the report language. Chinese notes are not copied into an English report."""
+
+    items = [str(p).strip() for p in (phrases or []) if str(p).strip()]
+    if lang != "en":
+        return items
+    kept = [p for p in items if not _CJK.search(p)]
+    if items and not kept:
+        return ["These notes were recorded in Chinese. Run the observer again so the English report can quote them in English."]
+    return kept
 
 
 def _latest_screen(case: Case) -> dict | None:
@@ -144,7 +159,7 @@ def _managed(offices: list[str], redesign: bool) -> dict | None:
     return {"package": key, "platform_usd": pkg["platform_usd"], "practitioner_usd_est": pkg["practitioner_usd_est"], "official_fees": "extra"}
 
 
-def _step(lang: str, label_zh: str, label_en: str, *, command: str | None = None, prompt_zh: str | None = None, prompt_en: str | None = None, credits: int | None = None, max_credits: int | None = None, minutes: str | None = None, free: bool = False) -> dict:
+def _step(lang: str, label_zh: str, label_en: str, *, command: str | None = None, prompt_zh: str | None = None, prompt_en: str | None = None, credits: int | None = None, max_credits: int | None = None, minutes: str | None = None, free: bool = False, requires_plan: str | None = None, included: bool = False) -> dict:
     step = {"label": label_zh if lang == "zh" else label_en, "command": command, "prompt": (prompt_zh if lang == "zh" else prompt_en) or (label_zh if lang == "zh" else label_en)}
     if credits is not None:
         step["credits"] = credits
@@ -153,7 +168,12 @@ def _step(lang: str, label_zh: str, label_en: str, *, command: str | None = None
         step["max_credits"] = max_credits
     if minutes:
         step["minutes"] = minutes
-    if free:
+    if requires_plan:
+        # A paid next step is never marked free. included means the current account already has that plan.
+        step["requires_plan"] = requires_plan
+        step["included"] = bool(included)
+        step["upgrade"] = f"designaround billing checkout --plan {requires_plan}"
+    elif free:
         step["free"] = True
     return step
 
@@ -165,7 +185,8 @@ def _risk_reasons(f: dict, lang: str, limit: int = 3) -> list[str]:
     out = []
     for r in rows[:limit]:
         obs = r.get("observer") or {}
-        similar = "；".join(obs.get("similar") or [])[:120] if lang == "zh" else "; ".join(obs.get("similar") or [])[:160]
+        similar_bits = phrases_for_lang(obs.get("similar") or [], lang)
+        similar = ("；".join(similar_bits) if lang == "zh" else "; ".join(similar_bits))[:160]
         lvl = LEVEL[lang].get(r.get("level"), r.get("level"))
         if lang == "zh":
             text = f"{r.get('number') or r.get('prior_art_id')}：风险 {r.get('risk', 0):.2f}（{lvl}）" + (f"，观察者 {obs.get('score')}/10" if obs.get("score") is not None else "，只有轮廓分") + (f"；相同点：{similar}" if similar else "")
@@ -240,7 +261,7 @@ def _next_deadline(case_id: str) -> dict | None:
     return None
 
 
-def decision_card(case_id: str, *, lang: str = "zh") -> dict:
+def decision_card(case_id: str, *, lang: str = "zh", filing_packs: bool = False) -> dict:
     """One sentence verdict, reasons, next steps with cost and time, and the managed option."""
 
     lang = "en" if lang == "en" else "zh"
@@ -332,7 +353,7 @@ def decision_card(case_id: str, *, lang: str = "zh") -> dict:
         if frozen:
             card["reasons"].append(f"提交基线 {frozen[-1]['baseline']} 已冻结" if zh else f"Submission baseline {frozen[-1]['baseline']} frozen")
         else:
-            card["next"].append(_step(lang, "冻结提交基线", "Freeze the submission baseline", command=f"designaround baseline freeze {case} {target} --office {filed[0]['office']}", prompt_zh=f"冻结 {target} 的提交基线", prompt_en=f"Freeze the submission baseline of {target}", free=True))
+            card["next"].append(_step(lang, "冻结提交基线", "Freeze the submission baseline", command=f"designaround baseline freeze {case} {target} --office {filed[0]['office']}", prompt_zh=f"冻结 {target} 的提交基线", prompt_en=f"Freeze the submission baseline of {target}", requires_plan="pro", included=filing_packs))
         if not gate_open:
             card["next"].append(_step(lang, "交给执业代理师审核提交", "Send to a registered practitioner", command=f"designaround gate create {case} --type filing_submission --reviewer-email <practitioner>", prompt_zh="把申请材料发给代理师审核", prompt_en="Send the filing package to a practitioner for review", free=True))
         from . import api as _api
@@ -345,7 +366,7 @@ def decision_card(case_id: str, *, lang: str = "zh") -> dict:
     if best or level in ("low", "not_seen"):
         verdict_text = (f"改型方案 {best['id']} 达标，可以准备申请" if zh else f"Candidate {best['id']} qualifies; prepare the filing") if best else ("风险低，可以推进" if zh else "Low risk; you can proceed")
         card["next"] += [
-            _step(lang, f"生成 {'/'.join(offices)} 申请材料包", f"Build the {'/'.join(offices)} filing package", command=f"designaround filing-pack {case} {target} --office {offices[0]}", prompt_zh=f"给 {target} 准备 {'、'.join(offices)} 的申请材料", prompt_en=f"Prepare the {', '.join(offices)} filing package for {target}", free=True),
+            _step(lang, f"生成 {'/'.join(offices)} 申请材料包", f"Build the {'/'.join(offices)} filing package", command=f"designaround filing-pack {case} {target} --office {offices[0]}", prompt_zh=f"给 {target} 准备 {'、'.join(offices)} 的申请材料", prompt_en=f"Prepare the {', '.join(offices)} filing package for {target}", requires_plan="pro", included=filing_packs),
             _step(lang, "打样包（STEP/STL + 中文说明）", "Prototype pack (STEP/STL + factory notes)", command=f"designaround proto {case} {target}", prompt_zh=f"给 {target} 出打样包", prompt_en=f"Make the prototype pack for {target}", free=True),
         ]
         card["managed"] = _managed(offices, redesign=False)
@@ -368,6 +389,24 @@ def decision_card(case_id: str, *, lang: str = "zh") -> dict:
     return done("redesign", "redesign", "建议改了再做" if zh else "Redesign before you sell", (f"最高风险 {summary.get('max_risk', 0):.2f}（{LEVEL[lang].get(level, level)}），高于合格线 {summary.get('threshold', 0.4):.2f}。" if zh else f"Highest risk {summary.get('max_risk', 0):.2f} ({LEVEL[lang].get(level, level)}), above the {summary.get('threshold', 0.4):.2f} threshold."))
 
 
+def step_cost_phrase(step: dict, lang: str) -> str:
+    """Plan or price label for one next step. Empty when the step has neither."""
+
+    zh = lang != "en"
+    if step.get("requires_plan") and not step.get("included"):
+        plan = str(step["requires_plan"]).capitalize()
+        upgrade = step.get("upgrade") or ""
+        return f"需要 {plan} 套餐，升级：`{upgrade}`" if zh else f"Needs the {plan} plan. Upgrade: `{upgrade}`"
+    if step.get("requires_plan"):
+        plan = str(step["requires_plan"]).capitalize()
+        return f"含在 {plan} 中" if zh else f"Included in {plan}"
+    if step.get("free"):
+        return "免费" if zh else "free"
+    if step.get("credits") is not None:
+        return f"约 {step['credits']} 积分（${step['usd']}）" if zh else f"~{step['credits']} credits (${step['usd']})"
+    return ""
+
+
 def card_markdown(card: dict) -> str:
     zh = card.get("lang") != "en"
     lines = [f"**{card['headline']}** · {card['stage_label']}", "", card["summary"]]
@@ -376,7 +415,7 @@ def card_markdown(card: dict) -> str:
     if card["next"]:
         lines += ["", "**下一步**" if zh else "**Next**"]
         for s in card["next"]:
-            cost = "免费" if zh and s.get("free") else ("free" if s.get("free") else (f"约 {s['credits']} 积分（${s['usd']}）" if zh else f"~{s['credits']} credits (${s['usd']})") if s.get("credits") is not None else "")
+            cost = step_cost_phrase(s, card.get("lang") or "zh")
             when = (f"，{s['minutes']} 分钟" if zh else f", {s['minutes']} min") if s.get("minutes") else ""
             lines.append(f"- {s['label']}{'：' if zh else ': '}{cost}{when}" + (f" — `{s['command']}`" if s.get("command") else ""))
     if card.get("options"):

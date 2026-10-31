@@ -14,6 +14,7 @@ from pathlib import Path
 
 from designaround_core import fees, quote, rules
 
+from .errors import FilingNotReady
 from .evidence import manifest_for_dir
 
 DISCLAIMER_EN = "Draft prepared by software for review by a registered patent practitioner. Not legal advice."
@@ -151,6 +152,23 @@ def applicant_gaps(office: str, applicant: dict, inventors: list[dict]) -> list[
     return gaps
 
 
+def _blocking_reasons(findings: list, viewpack: dict, gates: list[dict]) -> list[dict]:
+    """Block and error findings refuse export. An approved filing or representation gate lifts REP-* blocks only."""
+
+    lift_rep = any(g.get("status") == "approved" and g.get("type") in ("filing_submission", "representation") for g in gates)
+    reasons = []
+    for finding in findings:
+        if finding.severity not in ("block", "error"):
+            continue
+        if lift_rep and finding.severity == "block" and finding.rule_id.startswith("REP-"):
+            continue
+        reasons.append({"rule_id": finding.rule_id, "severity": finding.severity, "message": finding.message})
+    for finding in (viewpack.get("rules") or {}).get("findings") or []:
+        if finding.get("severity") == "error" and finding.get("pass") is False:
+            reasons.append({"rule_id": finding.get("rule_id"), "severity": finding.get("severity"), "message": finding.get("message")})
+    return reasons
+
+
 def build_filing_package(
     *,
     office: str,
@@ -163,8 +181,12 @@ def build_filing_package(
     has_unclaimed: bool = False,
     disclosures: list[dict] | None = None,
     planned_filing_date: str | None = None,
+    gates: list[dict] | None = None,
 ) -> dict:
     office = office.upper()
+    if office not in {"US", "CN", "EU"}:
+        raise ValueError("office must be US, CN or EU")
+    gates = list(gates or [])
     outdir = Path(outdir)
     outdir.mkdir(parents=True, exist_ok=True)
     applicant = case_meta.get("applicant") or {}
@@ -178,8 +200,47 @@ def build_filing_package(
     filing_date = date.fromisoformat(planned_filing_date) if planned_filing_date else None
     findings += rules.disclosure_findings(office, disclosures or [], filing_date)
     gaps = applicant_gaps(office, applicant, inventors)
-    files = []
+    if office == "EU":
+        if not (case_meta.get("locarno") or applicant.get("locarno")):
+            gaps.append("locarno class of the product (e.g. 06-04) for the indication of product")
+        if not viewpack.get("figures"):
+            gaps.append("views (build the EU view pack first)")
+    reasons = _blocking_reasons(findings, viewpack, gates)
+    if office == "US":
+        q = quote.filing_quote(["US"], entity=applicant.get("entity_size", "small"))
+    elif office == "CN":
+        q = quote.filing_quote(["CN"], fee_reduction=bool(applicant.get("fee_reduction")), similar_designs=len(similar_versions or []))
+    else:
+        q = quote.filing_quote(["EU"], similar_designs=len(similar_versions or []))
+    vp_rules = viewpack.get("rules") or {}
+    checklist = {
+        "office": office,
+        "rulepack_version": rules.RULEPACK_VERSION,
+        "fee_table_version": fees.FEE_TABLE_VERSION,
+        "status": rules.worst(findings),
+        "ready_for_practitioner": not reasons and not gaps and vp_rules.get("status") != "error",
+        "requires_practitioner_gate": any(f.rule_id.startswith("REP-") and f.severity == "block" for f in findings),
+        "findings": [f.to_dict() for f in findings],
+        "missing": gaps,
+        "blocked_reasons": reasons,
+        "gates": gates,
+        "similar_versions": similar_versions or [],
+        "quote": q,
+        "disclaimer": DISCLAIMER_ZH if office == "CN" else DISCLAIMER_EN,
+    }
 
+    def write_checklist() -> None:
+        (outdir / "checklist.json").write_text(json.dumps(checklist, indent=2, ensure_ascii=False), encoding="utf-8")
+
+    if reasons:
+        write_checklist()
+        listed = ", ".join(dict.fromkeys(r["rule_id"] for r in reasons if r.get("rule_id")))
+        raise FilingNotReady(
+            f"Filing package is not ready: {listed}",
+            details={"reasons": reasons, "checklist": checklist, "dir": str(outdir)},
+        )
+
+    files = []
     human = human_contribution(decisions, inventors)
     (outdir / "human_contribution.md").write_text(human["markdown"], encoding="utf-8")
     files.append("human_contribution.md")
@@ -212,7 +273,6 @@ def build_filing_package(
         files.append("ADS_AIA14_prefill.json")
         ids = write_ids(prior_art, outdir)
         files += ids["files"]
-        q = quote.filing_quote(["US"], entity=applicant.get("entity_size", "small"))
     elif office == "CN":
         article_zh = case_meta.get("article_zh") or article
         use_zh = case_meta.get("use_zh") or f"用于{article_zh}的日常使用"
@@ -234,7 +294,6 @@ def build_filing_package(
         }
         (outdir / "请求书_预填.json").write_text(json.dumps(request, indent=2, ensure_ascii=False), encoding="utf-8")
         files.append("请求书_预填.json")
-        q = quote.filing_quote(["CN"], fee_reduction=bool(applicant.get("fee_reduction")), similar_designs=len(similar_versions or []))
     elif office == "EU":
         locarno = case_meta.get("locarno") or applicant.get("locarno")
         form = {
@@ -249,33 +308,12 @@ def build_filing_package(
             "deferment_of_publication": "[optional: up to 30 months from filing/priority]",
             "priority": "[earlier filing (office, number, date) within 6 months, if claimed]",
             "disclaimer": DISCLAIMER_EN,
+            "missing_fields": gaps,
         }
-        if not locarno:
-            gaps.append("locarno class of the product (e.g. 06-04) for the indication of product")
-        if not form["views"]:
-            gaps.append("views (build the EU view pack first)")
-        form["missing_fields"] = gaps
         (outdir / "euipo_application.json").write_text(json.dumps(form, indent=2, ensure_ascii=False), encoding="utf-8")
         files.append("euipo_application.json")
-        q = quote.filing_quote(["EU"], similar_designs=len(similar_versions or []))
-    else:
-        raise ValueError("office must be US, CN or EU")
 
-    status = rules.worst(findings)
-    checklist = {
-        "office": office,
-        "rulepack_version": rules.RULEPACK_VERSION,
-        "fee_table_version": fees.FEE_TABLE_VERSION,
-        "status": status,
-        "ready_for_practitioner": status != "error" and not gaps,
-        "requires_practitioner_gate": any(f.rule_id.startswith("REP-") and f.severity == "block" for f in findings),
-        "findings": [f.to_dict() for f in findings],
-        "missing": gaps,
-        "similar_versions": similar_versions or [],
-        "quote": q,
-        "disclaimer": DISCLAIMER_ZH if office == "CN" else DISCLAIMER_EN,
-    }
-    (outdir / "checklist.json").write_text(json.dumps(checklist, indent=2, ensure_ascii=False), encoding="utf-8")
+    write_checklist()
     files.append("checklist.json")
     return {"office": office, "files": files, "checklist": checklist, "manifest": manifest_for_dir(outdir)}
 

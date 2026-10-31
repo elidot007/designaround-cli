@@ -238,6 +238,7 @@ def run_screen(case_id: str, *, image: Path | None, query: str | None, deep: boo
         "candidates": len(candidates),
         "added": added,
         "ranked": ranked,
+        "hits": [{"number": c.get("number"), "title": c.get("title")} for c in candidates[:3] if c.get("number")],
         "full_drawings": upgraded,
         "without_figures": no_figures,
         "source_failures": data.get("source_failures", []),

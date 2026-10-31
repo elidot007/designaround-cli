@@ -50,9 +50,10 @@ def main() -> int:
     status = "aborted" if current.get("status") == "aborted" else "finished"
     if outcome is not None and status != "aborted":
         # Result guarantee (FR-ACCT-08): filed here so it also works when nobody watches.
-        from .runner import finish_run
+        from .runner import apply_server_spend, finish_run
 
         outcome.setdefault("run_id", meta["run_id"])
+        apply_server_spend(outcome)
         finish_run(meta["task"], meta.get("run") or {}, outcome, events, meta.get("lang") or "zh")
         if outcome.get("guarantee"):
             meta["guarantee"] = outcome["guarantee"]

@@ -185,12 +185,16 @@ export async function runModel(deps: TeamDeps, input: { description?: string; kn
     const brief = `Build the original digital sample for case ${deps.caseId}.
 Photos attached (views: ${views}). Known dimension: ${input.knownDimension ?? "not given — ask the user"}.
 Description: ${input.description ?? "(none)"}
-Save exactly one version with kind "original" when the model matches the photos.`;
+Save exactly one version with kind "original" when the model matches the photos.
+If the photo gate fails, that version is stored as a draft and is not the original.`;
     await promptWithBudget(deps, session, brief, images);
     const original = created.at(-1);
     if (!original) return { status: "needs_input", reason: "CAD Agent did not save a model", reply: session.getLastAssistantText() };
     let gate = null;
-    if (Object.keys(photos).length) gate = await deps.engine.call("reconstruction_gate", { case_id: deps.caseId, vid: original, photo_paths: photos });
+    if (Object.keys(photos).length) {
+      gate = await deps.engine.call("reconstruction_gate", { case_id: deps.caseId, vid: original, photo_paths: photos });
+      if (gate && !gate.pass) await deps.engine.call("demote_failed_gate", { case_id: deps.caseId, vid: original, gate });
+    }
     deps.emit({ type: "model_done", version: original, gate });
     return { status: gate && !gate.pass ? "gate_failed" : "ok", version: original, gate };
   } finally {

@@ -3,7 +3,7 @@
   "name": "io.github.elidot007/designaround",
   "title": "DesignAround",
   "description": "Design-patent screening, design-around and drawings for US, CN and EU products.",
-  "version": "0.1.3.post1",
+  "version": "0.1.4",
   "websiteUrl": "https://designaround.elidot.com",
   "repository": {
     "url": "https://github.com/elidot007/designaround-cli",
@@ -15,7 +15,7 @@
       "registryType": "pypi",
       "registryBaseUrl": "https://pypi.org",
       "identifier": "designaround",
-      "version": "0.1.3.post1",
+      "version": "0.1.4",
       "runtimeHint": "uvx",
       "transport": {
         "type": "stdio"

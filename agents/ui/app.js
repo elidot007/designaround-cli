@@ -3,7 +3,7 @@
   const $ = (id) => document.getElementById(id);
   const { _t, _tf } = window; // i18n.js (NFR-I18N-01)
   window.daTranslateDom(document.body);
-  const state = { session: null, source: null, current: null, tools: {}, attachments: [], busy: false };
+  const state = { session: null, source: null, eventsReady: null, current: null, tools: {}, attachments: [], busy: false };
 
   const TOOL_LABELS = {
     status: _t("账户状态"), case_list: _t("案卷列表"), case_create: _t("新建案卷"), case_show: _t("查看案卷"), case_set: _t("更新案卷"), case_decide: _t("记录决定"),
@@ -153,6 +153,22 @@
     box.classList.remove("hidden");
   }
   $("lightbox").addEventListener("click", () => $("lightbox").classList.add("hidden"));
+
+  async function showBalance() {
+    const welcome = $("welcome-balance");
+    try {
+      const b = await api("/api/billing");
+      if (b.balance == null) {
+        $("acct-balance").textContent = "—";
+        if (welcome) welcome.textContent = "";
+        return;
+      }
+      $("acct-balance").textContent = _tf("{0} 积分", fmt(b.balance));
+      if (welcome) welcome.textContent = _tf("账户余额 {0} 积分（约 US${1}）", fmt(b.balance), (b.balance / 100).toFixed(2));
+    } catch (_) {
+      $("acct-balance").textContent = "—";
+    }
+  }
 
   function setMeter(spent) {
     state.spent = spent;
@@ -911,12 +927,20 @@
     $("messages").innerHTML = "";
     $("messages").appendChild(welcomeNode);
     bindExamples();
+    showBalance();
     $("chat-title").textContent = _t("新对话");
   }
 
   function connect(id) {
+    if (state.source) state.source.close();
     const source = new EventSource("/api/sessions/" + id + "/events");
     state.source = source;
+    state.eventsReady = new Promise((resolve) => {
+      if (source.readyState === EventSource.OPEN) return resolve();
+      const done = () => resolve();
+      source.addEventListener("open", done, { once: true });
+      source.addEventListener("error", done, { once: true });
+    });
     source.onmessage = (msg) => {
       const ev = JSON.parse(msg.data);
       if (ev.session && ev.session !== state.session) return;
@@ -1015,6 +1039,7 @@
     const text = $("input").value.trim();
     if (!text && !state.attachments.length) return;
     if (!state.session) await newSession();
+    if (state.eventsReady) await state.eventsReady;
     const files = state.attachments.map((a) => a.path);
     if ($("chat-title").textContent === _t("新对话") && text) $("chat-title").textContent = text.slice(0, 60);
     addUser(text, files);
@@ -1128,6 +1153,16 @@
     $("set-lang").value = window.DA_LANG;
     $("settings").showModal();
   });
+  // method=dialog will not close (and will not save) when another field fails validation.
+  $("set-save").addEventListener("click", () => {
+    const next = $("set-lang").value;
+    if (!next || next === window.DA_LANG) return;
+    try {
+      localStorage.setItem("da-lang", next === "en" ? "en" : "zh");
+    } catch (_) {
+      /* private mode */
+    }
+  });
   $("settings").addEventListener("close", async () => {
     if ($("settings").returnValue !== "save") return;
     const saved = await api("/api/settings", { method: "PUT", body: JSON.stringify({ chatBudget: Number($("set-budget").value), autoApproveCredits: Number($("set-auto").value) }) });
@@ -1199,6 +1234,7 @@
     $("runtime").textContent = `${s.mode} · ${s.models.assistant}`;
     state.budget = s.settings.chatBudget;
     setMeter(0);
+    showBalance();
     await Promise.all([loadSessions(), loadCases()]);
     const { id } = await api("/api/sessions", { method: "POST", body: "{}" });
     state.session = id;

@@ -26,6 +26,7 @@ How to judge:
 4. Small changes to corner radii, chamfers, scale or colour do not change the overall impression.
 5. If the field is crowded with similar registered designs, smaller differences are enough to create a different impression; if the prior art is distinctive, the candidate must differ in the distinctive features.
 6. Never state that a design "does not infringe", is "safe" or is "guaranteed". You produce a risk score for a professional to review.
+7. Write similar, different, distinctive_features_of_prior_art and uncertain in the language named in the user message. If none is named, write them in English.
 
 Score anchors (10 = substantially the same to an ordinary observer):
 - 9-10: same design; differences only visible on close side-by-side study.
@@ -46,10 +47,11 @@ Prior art: {number} ({office}) — {title}
 Claimed-scope notes: {scope}
 Field: {field_size} other registered designs of this product type were found in screening.
 Candidate version: {version}; sheet: {view}
+Language for similar, different, distinctive_features_of_prior_art and uncertain: {language}.
 Score how similar the overall visual impression of the candidate is to the CLAIMED design of the prior art."""
 
 
-def user_prompt(*, number: str, office: str | None, title: str | None, scope: str | None, version: str, view: str, article: str | None = None, field_size: int | None = None) -> str:
+def user_prompt(*, number: str, office: str | None, title: str | None, scope: str | None, version: str, view: str, article: str | None = None, field_size: int | None = None, lang: str = "en") -> str:
     return USER_TEMPLATE.format(
         article=article or "consumer product",
         number=number,
@@ -59,6 +61,7 @@ def user_prompt(*, number: str, office: str | None, title: str | None, scope: st
         field_size=field_size if field_size is not None else "unknown",
         version=version,
         view="multi-view comparison sheet" if view == "multi" else f"single view ({view})",
+        language="Chinese" if lang == "zh" else "English",
     )
 
 

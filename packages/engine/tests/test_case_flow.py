@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from designaround_engine import api
-from designaround_engine.errors import InvalidInput, NotFound
+from designaround_engine.errors import FilingNotReady, InvalidInput, NotFound
 
 
 @pytest.fixture()
@@ -49,10 +49,22 @@ def test_full_local_flow(case_with_original, tmp_path):
     api.case_update(cid, applicant={"name": "Shenzhen Example Co., Ltd.", "domicile": "CN", "type": "juristic", "address": "Shenzhen", "entity_size": "small", "fee_reduction": True}, inventors=[{"name": "Li Wei", "residence": "Shenzhen, CN"}])
     api.decision(cid, "selected candidate", {"version": v3["id"]}, person="Li Wei")
 
-    us = api.filing_pack(cid, v3["id"], "US")
+    with pytest.raises(FilingNotReady) as caught:
+        api.filing_pack(cid, v3["id"], "US")
+    failed = caught.value
+    assert "REP-US-001" in failed.message
+    pkg = Path(failed.details["dir"])
+    assert not (pkg / "specification.docx").exists()
+    blocked = json.loads((pkg / "checklist.json").read_text(encoding="utf-8"))
+    assert blocked["ready_for_practitioner"] is False
+    assert "gates" in blocked
+
+    us = api.filing_pack(cid, v3["id"], "US", gates=[{"id": "g1", "type": "filing_submission", "status": "approved"}])
     files = set(us["files"])
     assert {"specification.docx", "ADS_AIA14_prefill.json", "IDS_SB08_draft.csv", "human_contribution.md"} <= files
-    assert us["checklist"]["requires_practitioner_gate"]  # foreign-domiciled applicant
+    assert us["checklist"]["requires_practitioner_gate"]  # foreign-domiciled applicant, recorded even after the gate
+    assert us["checklist"]["gates"][0]["status"] == "approved"
+    assert (Path(us["dir"]) / "specification.docx").exists()
     vp = json.loads((Path(us["viewpack_dir"]) / "viewpack.json").read_text())
     assert vp["rules"]["status"] in ("ok", "warning")
     assert len(vp["figures"]) == 7

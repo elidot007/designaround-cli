@@ -33,3 +33,9 @@ class NotFound(EngineError):
 
 class InvalidInput(EngineError):
     code = "invalid_input"
+
+
+class FilingNotReady(EngineError):
+    """A filing package cannot be exported until blocking findings are cleared."""
+
+    code = "filing_not_ready"
